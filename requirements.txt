@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-pydantic
-python-dotenv
-pandas
-numpy
-pycontrails[ecmwf]
