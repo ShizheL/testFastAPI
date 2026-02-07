@@ -313,4 +313,80 @@ def main(dat: FlightData):
         "total_cost": total_cost,
         "waypoints": waypoints,
         "num_nodes": len(path),
+
+    }
+
+@app.post("/optimum_ef_route_onchain")
+def main_onchain(dat: FlightData):
+    """
+    Same as /optimum_ef_route but returns integer-scaled values
+    for Solidity/FDC compatibility.
+
+    Scaling: total_cost is multiplied by 1e18 and truncated to int.
+    """
+    # === Identical logic to /optimum_ef_route ===
+    n = dat.grid_density
+    lons = np.linspace(dat.start_long, dat.end_long, n)
+    lats = np.linspace(dat.start_lat, dat.end_lat, n)
+
+    lat_spread = abs(dat.end_lat - dat.start_lat) * 0.5
+    grid = {}
+    coords_list = []
+
+    for i in range(n):
+        center_lat = lats[i]
+        lat_options = np.linspace(center_lat - lat_spread, center_lat + lat_spread, n)
+        for j in range(n):
+            grid[(i, j)] = (lons[i], lat_options[j])
+            coords_list.append((i, j))
+
+    edges = []
+    for i in range(n - 1):
+        for j1 in range(n):
+            for j2 in range(n):
+                edges.append(((i, j1), (i + 1, j2), 1.0))
+
+    altitude_ft = 35000
+    aircraft_type = "A320"
+
+    ef_cache = {}
+    for (a, b, _) in edges:
+        lon_a, lat_a = grid[a]
+        lon_b, lat_b = grid[b]
+        try:
+            ef_values = compute_ef(
+                start_time=dat.start_time,
+                duration_hours=dat.duration_hours,
+                longs=[lon_a, lon_b],
+                lats=[lat_a, lat_b],
+                altitude_ft=altitude_ft,
+                aircraft_type=aircraft_type,
+            )
+            ef_cache[(a, b)] = sum(ef_values) if ef_values else 0.0
+        except Exception:
+            ef_cache[(a, b)] = 0.0
+
+    def cost_fn(coord_from, coord_to):
+        lon_a, lat_a = grid[coord_from]
+        lon_b, lat_b = grid[coord_to]
+        dlat = np.radians(lat_b - lat_a)
+        dlon = np.radians(lon_b - lon_a)
+        a_h = np.sin(dlat / 2) ** 2 + np.cos(np.radians(lat_a)) * np.cos(np.radians(lat_b)) * np.sin(dlon / 2) ** 2
+        dist_km = 6371 * 2 * np.arctan2(np.sqrt(a_h), np.sqrt(1 - a_h))
+        fuel_cost = dat.fuel_cost_per_km * dist_km
+        ef_cost = dat.lambda_value * ef_cache.get((coord_from, coord_to), 0.0)
+        return fuel_cost + ef_cost
+
+    start_node = (0, n // 2)
+    end_node = (n - 1, n // 2)
+
+    total_cost, path = dijkstra(edges, start_node, end_node, cost_fn)
+
+    # === Different from /optimum_ef_route: return scaled integers ===
+    COST_SCALE = 10**18
+
+    return {
+        "total_cost_scaled": int(total_cost * COST_SCALE),
+        "num_nodes": len(path),
+        "num_waypoints": len(path),
     }
