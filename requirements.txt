@@ -5,4 +5,3 @@ numpy
 pydantic
 python-dotenv
 pycontrails
-pycontrails-bada
