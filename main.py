@@ -383,10 +383,11 @@ def main_onchain(dat: FlightData):
     total_cost, path = dijkstra(edges, start_node, end_node, cost_fn)
 
     # === Different from /optimum_ef_route: return scaled integers ===
-    COST_SCALE = 10**18
+    COST_SCALE = 10**10
 
     return {
         "total_cost_scaled": int(total_cost * COST_SCALE),
-        "num_nodes": len(path),
-        "num_waypoints": len(path),
+        "num_nodes": int(len(path)),
+        "num_waypoints": int(len(path)),
     }
+
